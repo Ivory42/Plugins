@@ -507,15 +507,15 @@ stock float[] GetAimPos(int sentry, int turret, int target, float TargetLocation
 	
 	//Try and adjust aim based on the angle needed to reach location
 	if (Arc)
-		rot[0] -= FindAngleForTrajectory(TurretLocation, TargetLocation, ProjSpeed, flGravScale, flDistance);
+		rot[0] -= FindAngleForTrajectory(TurretLocation, TargetLocation, ProjSpeed, GetConVarFloat(gravscale), flDistance);
 	
 	for (int axis = 0; axis <= 2; axis++)
 	{
 		if (axis == 0)
 		{
-			if (rot[axis] <= -70.0)
+			if (rot[axis] <= -89.0)
 			{
-				rot[axis] = -70.0; //Do not allow sentry to aim more than 70 degrees up
+				rot[axis] = -89.0; //Do not allow sentry to aim more than 89 degrees up
 			}
 		}
 		aim[axis] = rot[axis];
@@ -524,9 +524,9 @@ stock float[] GetAimPos(int sentry, int turret, int target, float TargetLocation
 
 public float GetGroundPosition(int target, float beginPos[3])
 {
-	float DownAngle[3] = {89.9, 0.0, 0.0};
+	float DownAngle[3] = {89.0, 0.0, 0.0};
 	float endpos[3];
-	beginPos[2] += 20.0;
+	beginPos[2] += 40.0;
 	
 	Handle position_trace = TR_TraceRayFilterEx(beginPos, DownAngle, MASK_PLAYERSOLID, RayType_Infinite, FilterSelf, target);
 	if (TR_DidHit(position_trace))
@@ -569,12 +569,12 @@ public float FindAngleForTrajectory(float vecPos[3], float vecTarget[3], float f
 	//Reset grav scale back to convar value
 	flGravity *= 100.0;
 	
-	//Determine whether or not we can even reach our target; if we can't reach the target, return maximum turret angle
+	//Determine whether or not we can even reach our target; if we can't reach the target, return 45 for maximum distance
 	float factor = ((flGravity * flDistance) / Pow(flSpeed, 2.0));
 	if (factor >= 1.0) //can't take the arcsine of >1.0 so this distance is impossible to reach with our given projectile speed
 	{
 		//PrintCenterTextAll("Invalid Distance");
-		return 70.0;
+		return 45.0;
 	}
 
 	//If we can reach the target, calculate the angle needed
