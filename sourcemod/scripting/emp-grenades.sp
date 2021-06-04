@@ -48,7 +48,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_grenade", CMDToggleGrenade);
 	
 	//Setup our SDKCalls
-	GameData data = new GameData("tf.pipe.detonate");
+	GameData data = new GameData("GrenadeData");
 	if (!data)
 		SetFailState("Failed to find tf.pipe.detonate.txt gamedata! Unable to continue.");
 
