@@ -23,13 +23,14 @@
 Handle gravscale;
 bool bPipeContact[2048];
 
-float vecEPos[3] = {5555.0, 5555.0, 5555.0}; //Location to teleport current sentry to
+float vecEPosR[3] = {5555.0, 5555.0, 5555.0}; //Location to teleport current sentry to
+float vecEPosB[3] = {-5555.0, -5555.0, 5555.0}; //Location to teleport blue sentries
 
 int gHalo1;
 int gLaser1;
 
 //Sentry variables
-//int SentryOwner[2048];
+int SentryOwner[2048];
 int SentrySapper[2048];
 int SentryTarget[2048]; 		//Current target for this sentry
 int SentryHealth[2048];
@@ -152,11 +153,15 @@ public void DeployCustomTurret(int sentry, int owner)
 		GetEntPropVector(sentry, Prop_Send, "m_angRotation", spawnAng);
 		
 		//Teleport our real sentry outside the map instead of removing it
-		TeleportEntity(sentry, vecEPos, NULL_VECTOR, NULL_VECTOR);
+		switch (GetClientTeam(owner))
+		{
+			case 2: TeleportEntity(sentry, vecEPosR, NULL_VECTOR, NULL_VECTOR);
+			case 3: TeleportEntity(sentry, vecEPosB, NULL_VECTOR, NULL_VECTOR);
+		}
 		
 		//initialize sentry
 		int turret = CreateSentryBot();
-		SetEntPropEnt(turret, Prop_Send, "m_hOwnerEntity", owner);
+		SentryOwner[turret] = owner;
 		PlayerSentry[owner] = turret;
 		
 		SentrySpawnPos[turret] = spawnPos;
@@ -174,11 +179,12 @@ public void DeployCustomTurret(int sentry, int owner)
 	}
 }
 
+
 public Action SentryTakeDamage(int mortar, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3])
 {
 	if (IsValidEntity(mortar))
 	{
-		int owner = GetEntPropEnt(mortar, Prop_Send, "m_hOwnerEntity");
+		int owner = SentryOwner[mortar];
 		int oldSentry = FindSentryGun(owner);
 		if (GetClientTeam(attacker) != GetClientTeam(owner))
 		{
@@ -206,8 +212,8 @@ public Action SentryTakeDamage(int mortar, int &attacker, int &inflictor, float 
 			}
 		}
 
-		//This currently does not work as a player cannot hit an entity they are the owner of
-		//Leaving as a reference for whenever I decide to fix this
+		//Check if the attacking player is the owner
+		//This is used to repair/reload the sentry
 		else if (attacker == owner)
 		{
 			//int hWeapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
@@ -223,11 +229,11 @@ public Action SentryTakeDamage(int mortar, int &attacker, int &inflictor, float 
 	}
 }
 
-//See above, does not work for now
 public void RepairSentry(int oldSentry, int mortar, int owner)
 {
 	//Get sentry HP and player metal
 	int maxHP = GetEntProp(oldSentry, Prop_Send, "m_iMaxHealth");
+	int maxShells2 = GetSentryMaxShells(oldSentry);
 	int iMetal = GetEntProp(owner, Prop_Send, "m_iAmmo", _, 3);
 
 	//Make sure the player has metal to repair
@@ -241,12 +247,12 @@ public void RepairSentry(int oldSentry, int mortar, int owner)
 		if (SentryHealth[mortar] < maxHP)
 		{
 			RepairAmount = (iMetal >= 34) ? 102 : RoundFloat((float(iMetal) / 34.0) * 102.0);
-			remainder = iMetal - 34;
+			remainder = (iMetal > 34) ? iMetal - 34 : 0;
 		}
 		
 		//If we still have metal left over, add ammo to the sentry
 		if (remainder > 0)
-			addAmmo = (remainder - 40 >= 0) ? 40 : remainder; //Adding ammo to a sentry costs 1 metal per bullet, up to a max of 40 bullets per wrench swing
+			addAmmo = (remainder >= 40) ? 40 : remainder; //Adding ammo to a sentry costs 1 metal per bullet, up to a max of 40 bullets per wrench swing
 
 		metalDecrement = addAmmo + 34;
 		
@@ -256,12 +262,21 @@ public void RepairSentry(int oldSentry, int mortar, int owner)
 		AcceptEntityInput(oldSentry, "AddHealth");
 		int rounds = GetEntProp(oldSentry, Prop_Send, "m_iAmmoShells");
 		rounds += addAmmo;
+		if (rounds >= maxShells2) rounds = maxShells2;
 		SetEntProp(oldSentry, Prop_Send, "m_iAmmoShells", rounds);
 		
 		//Remove metal from player
 		iMetal -= metalDecrement;
+		if (iMetal <= 0) iMetal = 0;
 		SetEntProp(owner, Prop_Send, "m_iAmmo", iMetal, _, 3); 
 	}
+}
+
+//Will be used to get total ammo from sentry based on level
+//For now just return level 1 amount
+public int GetSentryMaxShells(int sentry)
+{
+	return 150;
 }
 
 public void TryRemoveSapper(int oldSentry, int mortar, int owner)
@@ -300,11 +315,12 @@ stock int CreateSentryBot()
 	DispatchKeyValue(sentry, "solid", "6");
 	DispatchSpawn(sentry);
 	ActivateEntity(sentry);
+	AcceptEntityInput(sentry, "Disable");
 	SetEntProp(sentry, Prop_Send, "m_usSolidFlags", 0x0100);
 	SetEntProp(sentry, Prop_Data, "m_nSolidType", 6);
-	SetEntProp(sentry, Prop_Send, "m_CollisionGroup", 4);
+	SetEntProp(sentry, Prop_Send, "m_CollisionGroup", 2);
 	
-	//Create Sentry base:
+	//Create Sentry base, parent to capsule, change targetname:
 	//	- This is the physical base to the turret
 	
 	SentryBase[sentry] = CreateEntityByName("prop_dynamic_override");
@@ -312,7 +328,7 @@ stock int CreateSentryBot()
 	DispatchSpawn(SentryBase[sentry]);
 	ActivateEntity(SentryBase[sentry]);
 	
-	//Create Turret:
+	//Create Turret and parent to base:
 	//	- Barrels of the turret/turet head
 	//	- This entity will be what actively rotates to track and fire at players
 	
@@ -324,21 +340,22 @@ stock int CreateSentryBot()
 	
 	ClosestDistance[sentry] = SENTRY_RANGE;
 	SentryTarget[sentry] = 0;
-	CreateTimer(0.1, SentryTargetTick, sentry, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(0.8, SentryTargetTick, sentry, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 
 	return sentry;
 }
 
+//This controls how the sentry picks its targets
 public Action SentryTargetTick(Handle Timer, int mortar)
 {
-	//PrintToChatAll("sentry target tick");
+	//PrintToServer("sentry target tick");
 	if (!IsValidEntity(mortar)) return Plugin_Stop;
 	
-	int sentryOwner = GetEntPropEnt(mortar, Prop_Send, "m_hOwnerEntity");
+	int sentryOwner = SentryOwner[mortar];
 	float playerpos[3], distance;
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		if (IsValidTarget(sentryOwner, client))
+		if (IsValidTarget(sentryOwner, client, mortar))
 		{
 			if (client == SentryTarget[mortar])
 			{
@@ -405,7 +422,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 			//int wIndex = GetEntProp(hWeapon, Prop_Send, "m_iItemDefinitionIndex");
 			int customSentry = FindSentryLookTarget(client);
 			if (customSentry > MaxClients)
-				sent_owner = GetEntPropEnt(customSentry, Prop_Send, "m_hOwnerEntity");
+				sent_owner = SentryOwner[customSentry];
 				
 			if (IsValidClient(sent_owner))
 			{
@@ -429,7 +446,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 //Initial sapping
 public void SapSentry(int mortar, int attacker)
 {
-	int owner = GetEntPropEnt(mortar, Prop_Send, "m_hOwnerEntity");
+	int owner = SentryOwner[mortar];
 	int oldSentry = FindSentryGun(owner);
 	if (HasEntProp(oldSentry, Prop_Send, "m_bDisabled") && !SentryDisabled(oldSentry))
 	{
@@ -445,7 +462,7 @@ public void SapSentry(int mortar, int attacker)
 //Try sapping the sentry
 public Action PerformSap(Handle Timer, int mortar)
 {
-	int owner = GetEntPropEnt(mortar, Prop_Send, "m_hOwnerEntity");
+	int owner = SentryOwner[mortar];
 	int oldSentry = FindSentryGun(owner);
 	if (!SentryDisabled(oldSentry))
 		return Plugin_Stop;
@@ -490,8 +507,10 @@ stock float[] GetAimPos(int sentry, int turret, int target, float TargetLocation
 	flGravScale = TargetVelocity[2] > 0.0 ? -flGravScale : flGravScale; //make sure to always adjust position downwards (subtract from positive movement, add to negative movement)
 	
 	//adjust to predicted position based on travel time
-	TargetLocation[0] += TargetVelocity[0] * flTravelTime;
-	TargetLocation[1] += TargetVelocity[1] * flTravelTime;
+	//We shorten the distance by only accounting for half the travel time, this way it's a bit easier to dodge
+	//This can be made variable based on the turret's level if so decided
+	TargetLocation[0] += TargetVelocity[0] * (flTravelTime * 0.5);
+	TargetLocation[1] += TargetVelocity[1] * (flTravelTime * 0.5);
 	
 	//Always target the ground position of the player
 	TargetLocation[2] = GetGroundPosition(target, TargetLocation);
@@ -499,7 +518,7 @@ stock float[] GetAimPos(int sentry, int turret, int target, float TargetLocation
 	//Apply gravity only if player is not on the ground
 	//We actually don't need this since we will always be aiming at the ground position... keeping as a reference if needed
 	//if (!(GetEntityFlags(target) & FL_ONGROUND))
-	//	TargetLocation[2] += TargetVelocity[2] * flTravelTime + (flGravScale + Pow(flTravelTime, 2.0)); //this isn't perfect but it's good enough
+	//	TargetLocation[2] += TargetVelocity[2] * flTravelTime + (flGravScale + Pow(flTravelTime, 2.0)) - 10.0; //gravity is quadratic and not constant, this isn't perfect but it's good enough
 	
 	MakeVectorFromPoints(TurretLocation, TargetLocation, AimVector);
 	NormalizeVector(AimVector, AimVector);
@@ -515,7 +534,7 @@ stock float[] GetAimPos(int sentry, int turret, int target, float TargetLocation
 		{
 			if (rot[axis] <= -89.0)
 			{
-				rot[axis] = -89.0; //Do not allow sentry to aim more than 89 degrees up
+				rot[axis] = -89.0; //Do not allow sentry to aim more than 70 degrees up
 			}
 		}
 		aim[axis] = rot[axis];
@@ -566,15 +585,12 @@ public float FindAngleForTrajectory(float vecPos[3], float vecTarget[3], float f
 {
 	float angPredict[3];
 	
-	//Reset grav scale back to convar value
-	flGravity *= 100.0;
-	
-	//Determine whether or not we can even reach our target; if we can't reach the target, return 45 for maximum distance
+	//Determine whether or not we can even reach our target; if we can't reach the target, return maximum turret angle
 	float factor = ((flGravity * flDistance) / Pow(flSpeed, 2.0));
 	if (factor >= 1.0) //can't take the arcsine of >1.0 so this distance is impossible to reach with our given projectile speed
 	{
 		//PrintCenterTextAll("Invalid Distance");
-		return 45.0;
+		return 70.0;
 	}
 
 	//If we can reach the target, calculate the angle needed
@@ -588,78 +604,99 @@ public float FindAngleForTrajectory(float vecPos[3], float vecTarget[3], float f
 //Fire projectile
 stock void SentryFireProjectile(int mortar, float rot[3], float speed, float vecLocation[3])
 {
-	int client = GetEntPropEnt(mortar, Prop_Send, "m_hOwnerEntity");
-	float vecForward[3], angRot[3], vecPos[3], vecVel[3];
-	GetEntPropVector(SentryTurret[mortar], Prop_Send, "m_vecOrigin", vecPos);
-	GetEntPropVector(SentryTurret[mortar], Prop_Send, "m_angRotation", angRot);
-	int iTeam = GetClientTeam(client);
-	
-	float flGravScale = GetConVarFloat(gravscale);
-	
-	//Setup ring for where projectile is predicted to land [WIP]
-	//This isn't perfect because of how VPhysics objects behave with damping/air resistance but it's a good approximation
-	//This can be made almost perfect with a proper VPhysics extension
-
-	//Make sure angle is always positive for calculation
-	float dAngle = (rot[0] < 0.0) ? rot[0] * -1 : rot[0];
-
-	//Convert angle to radians for sine function
-	float rAngle = DegToRad(dAngle);
-	float SineAngle = Sine(rAngle);
-	
-	//Try and predict how long this projectile will take to reach its destination
-	float flFlightTime = ((2.0 * speed * SineAngle) / flGravScale);
-
-	//If for whatever reason the flight time is 0, set it to 0.1 to prevent lingering rings
-	if (flFlightTime <= 0.0) flFlightTime = 0.1;
-	
-	//LogMessage("Predicted Flight Time: %.1f\nAngle: %.1f\nSine: %.1f\nGravity: %.1f", flFlightTime, dAngle, SineAngle, flGravScale);
-	
-	int rColor[4];
-	switch (iTeam)
+	if (IsTargetVisible(mortar, SentryTarget[mortar])) //Make sure we can still see our target
 	{
-		case 2: rColor = {100, 0, 0, 255};
-		case 3: rColor = {0, 0, 100, 255};
-		default: rColor = {70, 70, 70, 255};
+		int client = SentryOwner[mortar];
+		int oldSentry = FindSentryGun(client);
+		int iShells = GetEntProp(oldSentry, Prop_Send, "m_iAmmoShells");
+		
+		//Only fire if the mortar has ammo
+		if (iShells > 0)
+		{
+			float vecForward[3], angRot[3], vecPos[3], vecVel[3];
+			GetEntPropVector(SentryTurret[mortar], Prop_Send, "m_vecOrigin", vecPos);
+			GetEntPropVector(SentryTurret[mortar], Prop_Send, "m_angRotation", angRot);
+			int iTeam = GetClientTeam(client);
+			
+			float flGravScale = GetConVarFloat(gravscale);
+			
+			//Setup ring for where projectile is predicted to land [WIP]
+			//This isn't perfect because of how VPhysics objects behave with damping/air resistance but it's a good approximation
+			//This can be made almost perfect with a VPhysics extension, but we want to minimize the use of extensions as much as possible
+
+			//Make sure angle is always positive for calculation
+			float dAngle = (rot[0] < 0.0) ? rot[0] * -1 : rot[0];
+
+			//Convert angle to radians for sine function
+			float rAngle = DegToRad(dAngle);
+			float SineAngle = Sine(rAngle);
+			
+			//Try and predict how long this projectile will take to reach its destination
+			float flFlightTime = ((2.0 * speed * SineAngle) / flGravScale);
+
+			//If for whatever reason the flight time is 0, set it to 1.0 to prevent lingering rings
+			if (flFlightTime <= 0.0) flFlightTime = 1.0;
+			
+			//LogMessage("Predicted Flight Time: %.1f\nAngle: %.1f\nSine: %.1f", flFlightTime, dAngle, SineAngle);
+			
+			int rColor[4];
+			switch (iTeam)
+			{
+				case 2: rColor = {100, 0, 0, 255};
+				case 3: rColor = {0, 0, 100, 255};
+				default: rColor = {70, 70, 70, 255};
+			}
+			
+			//Values can be fiddled around with to get desired results, but these seem to be good for now
+			//Starting Radius of Ring = 250
+			//Ending Radius = 10
+			//Width of beam = 45
+			TE_SetupBeamRingPoint(vecLocation, 250.0, 10.0, gLaser1, gHalo1, 0, 0, flFlightTime, 45.0, 1.0, rColor, 50, 0);
+			TE_SendToAll();
+			
+
+			//TODO - Perform a collision check so that the forward position cannot pass through walls
+			GetForwardPos(vecPos, angRot, 40.0, _, vecForward);
+			GetAngleVectors(angRot, vecVel, NULL_VECTOR, NULL_VECTOR);
+			ScaleVector(vecVel, GRENADE_SPEED);
+			
+			// Create a pipe bomb.
+			int iEntity = CreateEntityByName("tf_projectile_pipe");
+			
+			//Set necessary netprops for grenade to function
+			SetEntPropEnt(iEntity, Prop_Send, "m_hOwnerEntity", client);
+			SetEntProp(iEntity, Prop_Send, "m_bIsLive", 1);
+
+			//Lower friction as much as possible... this is the best we can do without an extension
+			SetEntPropFloat(iEntity, Prop_Data, "m_flFriction", 0.0);
+			
+			//Set team values
+			SetVariantInt(iTeam);
+			AcceptEntityInput(iEntity, "TeamNum", -1, -1, 0);
+
+			SetVariantInt(iTeam);
+			AcceptEntityInput(iEntity, "SetTeam", -1, -1, 0);
+			
+			//Set netprops for damage values
+			/* Commenting out for now because pipes are weird and refuse to work with impact damage
+			SetEntPropFloat(iEntity, Prop_Send, "m_flDamage", 60.0); //sets damage after touching a surface... not sure if this will be necessary but setting it anyways
+			SetEntPropFloat(iEntity, Prop_Send, "m_DmgRadius", 146.0); //sets blast AoE
+			SetEntDataFloat(iEntity, FindSendPropInfo("CTFGrenadePipebombProjectile", "m_iDeflected"), 100.0, true); //should set impact damage (i.e damage from hitting a player)
+			SDKCall(g_hGrenadeDamage, iEntity, 100.0); //Only works for damage after a bounce... may as well just use m_flDamage
+			*/
+			
+			DispatchSpawn(iEntity);
+			TeleportEntity(iEntity, vecForward, angRot, vecVel);
+			
+			//Hook pipe's physics update to check when it makes contact with a surface
+			SDKHook(iEntity, SDKHook_VPhysicsUpdate, OnPipeUpdate);
+			SDKHook(iEntity, SDKHook_Touch, OnPipeHit);
+			bPipeContact[iEntity] = false;
+			
+			iShells -= 5;
+			SetEntProp(oldSentry, Prop_Send, "m_iAmmoShells", iShells);
+		}
 	}
-	
-	//Values can be fiddled around with to get desired results, but these seem to be good for now
-	//Starting Radius of Ring = 250
-	//Ending Radius = 10
-	//Width of beam = 45
-	TE_SetupBeamRingPoint(vecLocation, 250.0, 10.0, gLaser1, gHalo1, 0, 0, flFlightTime, 45.0, 1.0, rColor, 50, 0);
-	TE_SendToAll();
-	
-
-	//TODO - Perform a collision check so that the forward position cannot pass through walls
-	GetForwardPos(vecPos, angRot, 40.0, _, vecForward);
-	GetAngleVectors(angRot, vecVel, NULL_VECTOR, NULL_VECTOR);
-	ScaleVector(vecVel, GRENADE_SPEED);
-	
-	// Create a pipe bomb.
-	int iEntity = CreateEntityByName("tf_projectile_pipe");
-	
-	//Set necessary netprops for grenade to function
-	SetEntPropEnt(iEntity, Prop_Send, "m_hOwnerEntity", client);
-	SetEntProp(iEntity, Prop_Send, "m_bIsLive", 1);
-
-	//Lower friction as much as possible... it's better than nothing
-	SetEntPropFloat(iEntity, Prop_Data, "m_flFriction", 0.0);
-	
-	//Set team values
-	SetVariantInt(iTeam);
-	AcceptEntityInput(iEntity, "TeamNum", -1, -1, 0);
-
-	SetVariantInt(iTeam);
-	AcceptEntityInput(iEntity, "SetTeam", -1, -1, 0);
-	
-	DispatchSpawn(iEntity);
-	TeleportEntity(iEntity, vecForward, angRot, vecVel);
-	
-	//Hook pipe's physics update to check when it makes contact with a surface
-	SDKHook(iEntity, SDKHook_VPhysicsUpdate, OnPipeUpdate);
-	SDKHook(iEntity, SDKHook_Touch, OnPipeHit);
-	bPipeContact[iEntity] = false;
 }
 
 stock void GetForwardPos(float flOrigin[3], float vAngles[3], float flDistance, float flSideDistance = 0.0, float flBuffer[3])
@@ -675,6 +712,7 @@ stock void GetForwardPos(float flOrigin[3], float vAngles[3], float flDistance, 
 	ScaleVector(flDir, flSideDistance);
 	AddVectors(flBuffer, flDir, flBuffer);
 }
+
 
 //This only works when hitting a non-player/non-building entity...
 public Action OnPipeUpdate(int pipe)
@@ -700,11 +738,9 @@ public Action OnPipeUpdate(int pipe)
 
 //Because m_bTouched does NOT update when hitting a player we need to check if we ever come into contact with a player manually... and then just do the same thing
 public Action OnPipeHit(int pipe, int victim)
-{
-	int owner = GetEntPropEnt(pipe, Prop_Send, "m_hOwnerEntity");
-	
-	//Only do this if the entity hit is a player on the opposing team
-	if (IsValidTarget(owner, victim))
+{	
+	//Make sure the victim is a valid player
+	if (IsValidClient(victim))
 	{
 		//at least this way we can make the damage different on impact... yay?
 		SetupExplosion(pipe, 100, 146); //default pipe damage
@@ -755,9 +791,13 @@ stock int FindSentryGun(int owner)
 
 
 // sigh..
-stock bool IsValidTarget(int attacker, int target = 0)
+stock bool IsValidTarget(int attacker, int target, int mortar)
 {
-	if (!IsValidClient(attacker)) return false;
+	if (!IsValidClient(attacker) || !IsValidClient(target)) return false;
+	
+	//If we don't have a line of sight to the target, don't even bother checking anything about them
+	//PrintToServer("Checking LOS to target: %i", target);
+	if (!IsTargetVisible(mortar, target)) return false;
 	
 	//Now check if the target is valid
 	if (target > MaxClients)
@@ -774,21 +814,77 @@ stock bool IsValidTarget(int attacker, int target = 0)
 	}
 	else if (!IsValidClient(target)) return false;
 	
-	//if target is a player, make sure they are on the opposing team
-	if (GetClientTeam(target) != GetClientTeam(attacker)) return true;
+	// if target is a player, make sure they are on the opposing team
+	if (GetClientTeam(target) != GetClientTeam(attacker))
+	{
+		// if the target is on the opposing team, ignore the fact that they're disguised
+		if (TF2_IsPlayerInCondition(target, TFCond_Disguised) || TF2_IsPlayerInCondition(target, TFCond_Cloaked))
+		{
+			return false;
+		}
+		return true;
+	}
 	
 	//if none of these checks occur, just return false because then something isn't valid
 	return false;
+}
+
+stock bool IsTargetVisible(int mortar, int target)
+{
+	bool pass = false;
+	float vecStart[3], vecEnd[3];
+	GetClientEyePosition(target, vecEnd);
+	GetEntPropVector(mortar, Prop_Send, "m_vecOrigin", vecStart);
+	vecEnd[2] -= 24.0;
+	vecStart[2] += 25.0;
+	int hHitEnt;
+	
+	Handle trace1 = TR_TraceRayFilterEx(vecStart, vecEnd, MASK_PLAYERSOLID, RayType_EndPoint, MortarTargetFilter, mortar);
+	if (TR_DidHit(trace1))
+	{
+		hHitEnt = TR_GetEntityIndex(trace1);
+		//PrintToServer("Hit Ent: %i", hHitEnt);
+		if (hHitEnt == target)
+			pass = true;
+	}
+	CloseHandle(trace1);
+	return pass;
+}
+
+/*
+ * Most props can be fired over, an advantage to using this over a normal sentry could be that small props will not protect enemies
+ * Also sort of necessary to prevent the trace from hitting the mortar itself and always returning false
+ */
+public bool MortarTargetFilter(int entity, int contentsMask, any iExclude)
+{
+	int hOwner = SentryOwner[iExclude];
+	int iTeam = GetClientTeam(hOwner);
+	bool hit = false;
+	char classname[64];
+	GetEntityClassname(entity, classname, sizeof classname);
+	
+	//Return hit results on enemy players
+	if (IsValidClient(entity))
+	{
+		//PrintToServer("Hit Player");
+		if (GetClientTeam(entity) != iTeam)
+			hit = true;
+	}
+	
+	//Return hit results on spawn doors and the world itself
+	else if (entity == 0 || StrEqual(classname, "func_door"))
+		hit = true;
+		
+	//return our hit result
+	return hit;
 }
 
 stock void DestroySentry(int mortar)
 {
 	float vecPos[3];
 	GetEntPropVector(mortar, Prop_Send, "m_vecOrigin", vecPos);
-	int owner = GetEntPropEnt(mortar, Prop_Send, "m_hOwnerEntity");
+	int owner = SentryOwner[mortar];
 	int oldSentry = FindSentryGun(owner);
-	
-	//Teleport our sentry back to our position
 	if (IsValidEntity(oldSentry))
 		TeleportEntity(oldSentry, vecPos, NULL_VECTOR, NULL_VECTOR);
 	PlayerSentry[owner] = 0;
