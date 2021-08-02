@@ -50,7 +50,7 @@ public void OnPluginStart()
 	//Setup our SDKCalls
 	GameData data = new GameData("GrenadeData");
 	if (!data)
-		SetFailState("Failed to find tf.pipe.detonate.txt gamedata! Unable to continue.");
+		SetFailState("Failed to find GrenadeData.txt gamedata! Unable to continue.");
 
 	//Sets up SDKCall for detonating a grenade on demand
 	StartPrepSDKCall(SDKCall_Entity);
@@ -85,16 +85,19 @@ public Action EventObjectBuilt(Handle hEvent, const char[] name, bool dBroad)
 
 public Action OnBuildingDamaged(int building, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3])
 {
+	if (!IsValidEntity(building) || !HasEntProp(building, Prop_send, "m_iTeamNum") return Plugin_Conitnue;
+	if (!IsValidClient(attacker)) return Plugin_Continue;
+	
 	//OnTakeDamage fires for explosions even if the attacker and victim are on the same team, so let's make sure we can't EMP friendly buildings
+	
 	int iTeam = GetEntProp(building, Prop_Send, "m_iTeamNum");
 	if (iTeam != GetClientTeam(attacker))
 	{		
 		//Is the inflictor a grenade that can EMP?
 		if (bEMP[inflictor])
 		{
-			//Disable the building and prevent it from thinking (this disables teleporters and dispensers as well)
+			//Disable the building
 			SetEntProp(building, Prop_Send, "m_bDisabled", 1);
-			SetEntProp(building, Prop_Data, "m_nNextThinkTick", -1);
 			//PrintToChatAll("Building disabled");
 			
 			//We want to scale the stun duration based on distance between the grenade and the building
@@ -110,8 +113,8 @@ public Action OnBuildingDamaged(int building, int &attacker, int &inflictor, flo
 			//Apply the modifier to stun duration
 			float flDuration = flMod * GetConVarFloat(g_disableTime);
 		
-			//Now clamp the duration (minimum of 0.5 seconds, capped at convar value)
-			flDuration = ClampFloat(flDuration, 0.5, GetConVarFloat(g_disableTime));
+			//Now clamp the duration (minimum of 0.2 seconds, capped at convar value)
+			flDuration = ClampFloat(flDuration, 0.2, GetConVarFloat(g_disableTime));
 			
 			//Store our building's entity reference so we can check it later
 			int buildRef = EntIndexToEntRef(building);
@@ -126,13 +129,13 @@ public Action TimerDisableBuilding(Handle tTimer, int ref)
 	if (IsValidEntity(building) && building > MaxClients)
 	{
 		SetEntProp(building, Prop_Send, "m_bDisabled", 0);
-		SetEntProp(building, Prop_Data, "m_nNextThinkTick", 1);
 	}
 }
 
 public Action CMDToggleGrenade(int client, int args)
 {
 	bGrenadeLauncher[client] = !bGrenadeLauncher[client];
+	PrintToChat(client, "EMP Grenades %s.", bGrenadeLauncher[client] ? "enabled" : "disabled");
 }
 
 public void OnClientPutInServer(int client)
@@ -173,9 +176,9 @@ public Action OnPipeUpdate(int pipe)
 	if (!bPipeContact[pipe])
 	{
 		//has this pipe made contact with a surface?
-		if (GetEntProp(pipe, Prop_Send, "m_bTouched") == 1 && !bGrenadePrimed[pipe])
+		if (GetEntProp(pipe, Prop_Send, "m_bTouched") && !bGrenadePrimed[pipe])
 		{
-			//Because m_bTouched is permanently set to 1 and never resets, we need to manually tell the plugin that this pipe can no longer detonate
+			//Because m_bTouched is set and then forgotten, we need to tell the plugin to only do this once after a short delay
 			//Otherwise after touching a surface, this will be called every physics update for the pipe
 			bPipeContact[pipe] = true;
 			flFuseTime[pipe] = GetEngineTime() + GetConVarFloat(g_fuseTime);
