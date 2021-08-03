@@ -24,7 +24,7 @@ float arcDelay[2049];
 
 public void OnPluginStart()
 {
-	RegConsoleCommand("sm_arcrocket", CmdToggleArc);
+	RegConsoleCmd("sm_arcrocket", CmdToggleArc);
 	
 	HookEvent("post_inventory_application", Event_PlayerResupply);
 	
@@ -79,7 +79,7 @@ public void OnGameFrame()
 	int ent = MaxClients + 1;
 	while ((ent = FindEntityByClassname(ent, "tf_projectile_rocket")) != -1 || (ent = FindEntityByClassname(ent, "tf_projectile_energy_rocket")) != -1)
 	{
-		if (shouldArc[ent] && arcDelay[proj] <= GetEngineTime())
+		if (shouldArc[ent] && arcDelay[ent] <= GetEngineTime())
 		{
 			ArcRocket(ent);
 		}
