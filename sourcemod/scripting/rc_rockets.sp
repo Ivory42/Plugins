@@ -22,7 +22,7 @@ ConVar g_rocketAimType;
 public void OnPluginStart()
 {
 	g_rocketTurnRate = CreateConVar("rc_rocket_turn_rate", "100.0", "Degrees per second at which rockets rotate when being controlled by player movement");
-	g_rocketAimType = CreateConVar("rc_rocket_aim_type", "0", "Method for aiming rockets. 0 = player movement | 1 = player aim");
+	g_rocketAimType = CreateConVar("rc_rocket_aim_type", "1", "Method for aiming rockets. 0 = player movement | 1 = player aim");
 
 	//Events
 	AddCommandListener(PlayerJoinClass, "joinclass");
