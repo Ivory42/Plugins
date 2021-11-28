@@ -241,7 +241,6 @@ public void OnGameFrame()
 
 void ConvergeRocket(int rocket)
 {
-	static float chatDelay;
 	if (IsValidEntity(rocket) && MirvConverge[rocket])
 	{
 		float curPos[3], curAngle[3], trajectory[3], vel[3], speed;
@@ -284,14 +283,9 @@ void ConvergeRocket(int rocket)
 		float dot = GetVectorDotProduct(forwardVec, angleVec) / GetVectorLength(forwardVec, true);
 		float rad = ArcCosine(dot);
 		float deg = RadToDeg(rad);
-		if (chatDelay <= GetEngineTime())
-		{
-			PrintToChatAll("Angle: %.1f", deg);
-			chatDelay = GetEngineTime() + 0.5;
-		}
 		if (deg <= 1.0 && MinFlightTime[rocket] <= GetEngineTime()) //stop converging once the angle is small enough
 		{
-			PrintToChatAll("Final Angle: %.1f", deg);
+			//PrintToChatAll("Final Angle: %.1f", deg);
 			MirvConverge[rocket] = false;
 			PrintToChatAll("Converge End");
 		}
