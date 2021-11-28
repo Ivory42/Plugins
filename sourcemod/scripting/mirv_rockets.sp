@@ -307,18 +307,6 @@ public Action OnRocketEnd(int rocket, int victim)
 				RocketOverride[rocket] = false;
 			}
 		}
-		else if (IsValidClient(victim))
-		{
-			bool sameTeam = (GetClientTeam(owner) == GetClientTeam(victim)); //check if the player we hit is an enemy player
-			if (sameTeam)
-			{
-				return Plugin_Handled; //pass through teammates to prevent control being lost on player overlap
-			}
-			else
-			{
-				RocketOverride[rocket] = false;
-			}
-		}
 	}
 	return Plugin_Continue;
 }
