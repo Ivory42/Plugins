@@ -342,11 +342,11 @@ public Action OnRocketEnd(int rocket, int victim)
 	{
 		if (!IsValidClient(victim))
 		{
-	    	char classname[64];
-	    	GetEntityClassname(victim, classname, sizeof classname);
-	    	if (victim == 0 || !StrContains(classname, "prop_", false) || !StrContains(classname, "obj_", false) || !StrContains(classname, "func_door")) //solid props
-	    	{
-				RocketOverride[rocket] = false;
+			char classname[64];
+			GetEntityClassname(victim, classname, sizeof classname);
+			if (victim == 0 || !StrContains(classname, "prop_", false) || !StrContains(classname, "obj_", false) || !StrContains(classname, "func_door")) //solid props
+			{
+					RocketOverride[rocket] = false;
 			}
 		}
 	}
