@@ -253,7 +253,7 @@ void ConvergeRocket(int rocket)
 		NormalizeVector(trajectory, trajectory);
 		float distance = ClampFloat(GetVectorDistance(curPos, ConvergePoint[rocket]), 0.0, 70.0);
 		ScaleVector(trajectory, distance);
-		AddVectors(curPos, trajectory, curPos);
+		AddVectors(curPos, trajectory, trajectory);
 
 		AddVectors(vel, trajectory, vel);
 		NormalizeVector(vel, vel);
