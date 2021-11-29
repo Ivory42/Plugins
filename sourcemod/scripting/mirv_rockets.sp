@@ -18,6 +18,8 @@ bool RocketOverride[2049];
 bool MirvRocket[2049];
 bool MirvConverge[2049];
 
+bool ShouldMirvConverge;
+
 float ConvergePoint[2049][3];
 float MinFlightTime[2049];
 
@@ -27,12 +29,17 @@ int glow;
 ConVar g_rocketDelay;
 ConVar g_rocketCount;
 ConVar g_rocketCurve;
+ConVar g_showDebug;
 
 public void OnPluginStart()
 {
 	g_rocketDelay = CreateConVar("mirv_rocket_delay", "0.8", "Delay before a mirv rocket splits into other rockets");
 	g_rocketCount = CreateConVar("mirv_rocket_count", "3", "How many rockets a mirv rocket splits into", _, true, 2.0, true, 6.0);
 	g_rocketCurve = CreateConVar("mirv_converge_rockets", "0", "Do rockets converge on a single point after splitting", _, true, 0.0, true, 1.0);
+	g_showDebug = CreateConVar("mirv_converge_debug", "0", "Show debug angles and trajectory for converging rockets", _, true, 0.0, true, 1.0);
+	HookConVarChange(g_rocketCurve, OnMirvSettingsChanged);
+	
+	ShouldMirvConverge = GetConVarBool(g_rocketCurve);
 
 	ExplodeSprite = PrecacheModel("sprites/sprite_fire01.vmt");
 	PrecacheSound(ExplodeSound);
@@ -49,6 +56,12 @@ public void OnPluginStart()
 			OnClientPostAdminCheck(client);
 		}
 	}
+}
+
+public void OnMirvSettingsChanged(ConVar convar, char[] oldVal, char[] newVal)
+{
+	int cvarValue = StringToInt(newVal);
+	ShouldMirvConverge = view_as<bool>(cvarValue);
 }
 
 public void OnMapStart()
@@ -88,7 +101,7 @@ Action CmdControl(int client, int args)
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (!(StrContains(classname, "tf_projectile_rocket")))
+	if (!(StrContains(classname, "tf_projectile_rocket")) || !(StrContains(classname, "tf_projectile_energy_ball")))
 	{
 		//SDKHook(entity, SDKHook_SpawnPost, OnRocketSpawned);
 		RequestFrame(OnRocketSpawned, entity);
@@ -133,26 +146,36 @@ public Action RocketTimer(Handle timer, any ref)
 
 void SplitRocket(int rocket, bool converge)
 {
-	float pos[3], rocketAngle[3], convergePos[3];
+	float pos[3], rocketAngle[3], convergePos[3], rocketVel[3], speed;
+	char classname[64], netname[64];
 	int owner = GetEntPropEnt(rocket, Prop_Send, "m_hOwnerEntity");
 	if (!IsValidClient(owner)) return;
 	if (!IsValidEntity(rocket) || rocket < MaxClients) return;
 
 	GetEntPropVector(rocket, Prop_Data, "m_vecOrigin", pos);
 	GetEntPropVector(rocket, Prop_Send, "m_angRotation", rocketAngle);
-	int crit = GetEntProp(rocket, Prop_Send, "m_bCritical");
+	GetEntPropVector(rocket, Prop_Data, "m_vecVelocity", rocketVel);
+	speed = GetVectorLength(rocketVel);
+	int crit = 0;
+	if (HasEntProp(rocket, Prop_Send, "m_bCritical"))
+		crit = GetEntProp(rocket, Prop_Send, "m_bCritical");
+	GetEntityClassname(rocket, classname, sizeof classname);
+	GetEntityNetClass(rocket, netname, sizeof netname);
 	RocketOverride[rocket] = false;
 	AcceptEntityInput(rocket, "Kill");
 
 	//converge
+	float variance;
 	if (converge)
 	{
-		SetupConvergePoint(pos, rocketAngle, 1500.0, convergePos, owner);
+		SetupConvergePoint(pos, rocketAngle, 2500.0, convergePos, owner);
+		variance = ClampFloat((GetVectorDistance(pos, convergePos) / 5.0), 3.0, 30.0);
 	}
 	else
 		rocketAngle[0] += GetRandomFloat(1.0, 10.0);
+		
 	EmitSoundToAll(ExplodeSound, rocket);
-	TE_SetupExplosion(pos, ExplodeSprite, 3.0, 1, 0, 100, 10);
+	TE_SetupExplosion(pos, ExplodeSprite, 3.0, 1, 0, 1, 1);
 	TE_SendToAll();
 	int count = GetConVarInt(g_rocketCount);
 	//PrintToChat(owner, "Mirv count: %i", count);
@@ -163,13 +186,12 @@ void SplitRocket(int rocket, bool converge)
 		{
 			newPos[axis] = pos[axis] + GetRandomFloat(-3.0, 3.0); //prevent rockets from colliding with each other
 			if (converge) //much larger spread if rockets converge on a point
-				angles[axis] = rocketAngle[axis] + GetRandomFloat(-35.0, 35.0);
+				angles[axis] = rocketAngle[axis] + GetRandomFloat((-1.0 * variance), variance);
 			else
 				angles[axis] = rocketAngle[axis] + GetRandomFloat(-5.0, 5.0);
 		}
 
-		int mirv = CreateEntityByName("tf_projectile_rocket");
-		//PrintToChat(owner, "Mirv spawned: %i", mirv);
+		int mirv = CreateEntityByName(classname);
 		MirvRocket[mirv] = true;
 		int team = GetClientTeam(owner);
 		SetVariantInt(team);
@@ -178,21 +200,21 @@ void SplitRocket(int rocket, bool converge)
 		SetEntPropEnt(mirv, Prop_Send, "m_hOwnerEntity", owner);
 		float vel[3];
 		GetAngleVectors(angles, vel, NULL_VECTOR, NULL_VECTOR);
-		ScaleVector(vel, 1100.0);
+		ScaleVector(vel, speed);
 		TeleportEntity(mirv, newPos, angles, vel);
 		DispatchSpawn(mirv);
-		SetEntProp(mirv, Prop_Send, "m_bCritical", crit);
-		SetEntDataFloat(mirv, FindSendPropInfo("CTFProjectile_Rocket", "m_iDeflected") + 4, 50.0);
+		if (HasEntProp(rocket, Prop_Send, "m_bCritical"))
+			SetEntProp(mirv, Prop_Send, "m_bCritical", crit);
+		SetEntDataFloat(mirv, FindSendPropInfo(netname, "m_iDeflected") + 4, 50.0);
 
 		if (converge)
 		{
 			MirvConverge[mirv] = true;
-			MinFlightTime[mirv] = GetEngineTime() + 0.1;
-			ConvergePoint[mirv][0] = convergePos[0] += GetRandomFloat(-50.0, 50.0);
-			ConvergePoint[mirv][1] = convergePos[1] += GetRandomFloat(-50.0, 50.0);
-			ConvergePoint[mirv][2] = convergePos[2] += GetRandomFloat(-50.0, 50.0);
+			MinFlightTime[mirv] = GetEngineTime() + 1.0;
+			ConvergePoint[mirv][0] = convergePos[0] += GetRandomFloat(-20.0, 20.0);
+			ConvergePoint[mirv][1] = convergePos[1] += GetRandomFloat(-20.0, 20.0);
+			ConvergePoint[mirv][2] = convergePos[2] += GetRandomFloat(-20.0, 20.0);
 		}
-		continue;
 	}
 }
 
@@ -215,13 +237,19 @@ void SetupConvergePoint(float pos[3], float angle[3], float range, float bufferP
 	if (TR_DidHit(trace))
 	{
 		TR_GetEndPosition(bufferPos, trace);
-		//TE_SetupBeamPoints(pos, bufferPos, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {0, 255, 0, 255}, 10);
-		//TE_SendToClient(owner);
+		if (GetConVarBool(g_showDebug))
+		{
+			//TE_SetupBeamPoints(pos, bufferPos, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {0, 255, 0, 255}, 10);
+			//TE_SendToClient(owner);
+		}
 		CloseHandle(trace);
 		return;
 	}
-	//TE_SetupBeamPoints(pos, forwardPos, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {255, 0, 0, 255}, 10);
-	//TE_SendToClient(owner);
+	if (GetConVarBool(g_showDebug))
+	{
+		TE_SetupBeamPoints(pos, forwardPos, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {255, 0, 0, 255}, 10);
+		TE_SendToClient(owner);
+	}
 	CloseHandle(trace);
 	bufferPos = forwardPos;
 	return;
@@ -229,12 +257,23 @@ void SetupConvergePoint(float pos[3], float angle[3], float range, float bufferP
 
 public void OnGameFrame()
 {
-	int rocket = MaxClients + 1;
-	while ((rocket = FindEntityByClassname(rocket, "tf_projectile_rocket")) != -1)
+	if (ShouldMirvConverge)
 	{
-		if (MirvConverge[rocket])
+		int rocket = MaxClients + 1;
+		while (((rocket = FindEntityByClassname(rocket, "tf_projectile_rocket")) != -1))
 		{
-			ConvergeRocket(rocket);
+			if (MirvConverge[rocket])
+			{
+				ConvergeRocket(rocket);
+			}
+		}
+		rocket = MaxClients + 1;
+		while (((rocket = FindEntityByClassname(rocket, "tf_projectile_energy_ball")) != -1))
+		{
+			if (MirvConverge[rocket])
+			{
+				ConvergeRocket(rocket);
+			}
 		}
 	}
 }
@@ -251,9 +290,9 @@ void ConvergeRocket(int rocket)
 
 		MakeVectorFromPoints(curPos, ConvergePoint[rocket], trajectory);
 		NormalizeVector(trajectory, trajectory);
-		float distance = ClampFloat(GetVectorDistance(curPos, ConvergePoint[rocket]), 0.0, 70.0);
+		float distance = ClampFloat(GetMagnitudeFromDistance(GetVectorDistance(curPos, ConvergePoint[rocket])), 35.0, 400.0);
 		ScaleVector(trajectory, distance);
-		AddVectors(curPos, trajectory, trajectory);
+		AddVectors(curPos, trajectory, curPos);
 
 		AddVectors(vel, trajectory, vel);
 		NormalizeVector(vel, vel);
@@ -261,7 +300,7 @@ void ConvergeRocket(int rocket)
 		ScaleVector(vel, speed);
 		TeleportEntity(rocket, NULL_VECTOR, curAngle, vel);
 
-		//Debug for trajectory and angle
+		//Check angles between forward vector of rocket and vector to converge point
 		float forwardVec[3], angleVec[3];
 		GetAngleVectors(curAngle, forwardVec, NULL_VECTOR, NULL_VECTOR);
 		ScaleVector(forwardVec, 150.0);
@@ -270,34 +309,37 @@ void ConvergeRocket(int rocket)
 		NormalizeVector(angleVec, angleVec);
 		ScaleVector(angleVec, 150.0);
 		AddVectors(curPos, angleVec, angleVec);
-		//forward visual
-		//TE_SetupBeamPoints(curPos, forwardVec, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {100, 0, 200, 255}, 10);
-		//TE_SendToAll();
-		//angle visual
-		//TE_SetupBeamPoints(curPos, angleVec, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {255, 255, 0, 255}, 10);
-		//TE_SendToAll();
+		
+		if (GetConVarBool(g_showDebug))
+		{
+			//forward visual
+			TE_SetupBeamPoints(curPos, forwardVec, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {100, 0, 200, 255}, 10);
+			TE_SendToAll();
+			//converge vector
+			TE_SetupBeamPoints(curPos, angleVec, glow, glow, 0, 1, 5.0, 5.0, 5.0, 10, 0.0, {255, 255, 0, 255}, 10);
+			TE_SendToAll();
+		}
 
-		//Check angle between rocket forward vector and position
 		NormalizeVector(forwardVec, forwardVec);
 		NormalizeVector(angleVec, angleVec);
 		float dot = GetVectorDotProduct(forwardVec, angleVec) / GetVectorLength(forwardVec, true);
-		float rad = ArcCosine(dot);
-		float deg = RadToDeg(rad);
-		if (deg <= 1.0 && MinFlightTime[rocket] <= GetEngineTime()) //stop converging once the angle is small enough
-		{
-			//PrintToChatAll("Final Angle: %.1f", deg);
+		float deg = RadToDeg(ArcCosine(dot));
+		if ((deg <= 1.35 || deg >= 7.0) && MinFlightTime[rocket] <= GetEngineTime()) //stop converging once the angle is small enough
 			MirvConverge[rocket] = false;
-			PrintToChatAll("Converge End");
-		}
 	}
 }
 
-//Make sure to take the player out of the remote control state upon a rocket hitting something
+float GetMagnitudeFromDistance(float distance)
+{
+	float magnitude;
+	magnitude = 600.0 / distance;
+	return magnitude;
+}
+
 public Action OnRocketEnd(int rocket, int victim)
 {
 	if (RocketOverride[rocket])
 	{
-		int owner = GetEntPropEnt(rocket, Prop_Send, "m_hOwnerEntity");
 		if (!IsValidClient(victim))
 		{
 	    	char classname[64];
