@@ -16,6 +16,10 @@ bool PlayerControlRockets[MAXPLAYERS+1];
 bool RocketOverride[2049];
 int RocketID[MAXPLAYERS+1];
 
+//rocket settings
+int AimType;
+float RotRate;
+
 ConVar g_rocketTurnRate;
 ConVar g_rocketAimType;
 
@@ -23,6 +27,7 @@ public void OnPluginStart()
 {
 	g_rocketTurnRate = CreateConVar("rc_rocket_turn_rate", "100.0", "Degrees per second at which rockets rotate when being controlled by player movement");
 	g_rocketAimType = CreateConVar("rc_rocket_aim_type", "1", "Method for aiming rockets. 0 = player movement | 1 = player aim");
+	HookConVarChange(g_rocketAimType, OnRocketAimChanged);
 
 	//Events
 	AddCommandListener(PlayerJoinClass, "joinclass");
@@ -37,6 +42,16 @@ public void OnPluginStart()
 			OnClientPostAdminCheck(client);
 		}
 	}
+}
+
+public void OnRocketAimChanged(ConVar convar, char[] oldVal, char[] newVal)
+{
+	AimType = StringToInt(newVal);
+}
+
+public void OnRocketRateChanged(ConVar convar, char[] oldVal, char[] newVal)
+{
+	RotRate = StringToFloat(newVal);
 }
 
 public Action PlayerDeath(Handle event, const char[] name, bool dBroad)
@@ -162,12 +177,12 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		buttons &= ~IN_ATTACK;
 		int rocket = RocketID[client];
 		float rocketAngle[3], forwardVec[3], velocity[3], speed;
-		float rate = GetConVarFloat(g_rocketTurnRate) / 67.0; //this function executes ~67 times per second, so divide by 67 to get our turn rate in degrees per second.
+		float rate = RotRate / 67.0; //this function executes ~67 times per second, so divide by 67 to get our turn rate in degrees per second.
 		GetEntPropVector(rocket, Prop_Data, "m_vecVelocity", velocity);
 		GetEntPropVector(rocket, Prop_Send, "m_angRotation", rocketAngle);
 		speed = GetVectorLength(velocity);
 		//movement
-		switch (GetConVarInt(g_rocketAimType))
+		switch (AimType)
 		{
 			case 0: //player movement
 			{
