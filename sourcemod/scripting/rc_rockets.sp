@@ -147,10 +147,10 @@ public Action OnRocketEnd(int rocket, int victim)
 		int owner = GetEntPropEnt(rocket, Prop_Send, "m_hOwnerEntity");
 		if (!IsValidClient(victim))
 		{
-	    	char classname[64];
-	    	GetEntityClassname(victim, classname, sizeof classname);
-	    	if (victim == 0 || !StrContains(classname, "prop_", false) || !StrContains(classname, "obj_", false) || !StrContains(classname, "func_door")) //solid props
-	    	{
+			char classname[64];
+			GetEntityClassname(victim, classname, sizeof classname);
+			if (victim == 0 || !StrContains(classname, "prop_", false) || !StrContains(classname, "obj_", false) || !StrContains(classname, "func_door")) //solid props
+			{
 				SetPlayerRCMode(owner, false);
 			}
 		}
