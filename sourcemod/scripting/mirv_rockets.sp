@@ -353,12 +353,12 @@ public Action OnRocketEnd(int rocket, int victim)
 	return Plugin_Continue;
 }
 
-bool IsValidClient(int bot)
+bool IsValidClient(int client)
 {
-    if ( !( 1 <= bot <= MaxClients ) || !IsClientInGame(bot) )
-        return false;
+	if (!(1 <= client <= MaxClients ) || !IsClientInGame(client))
+		return false;
 
-    return true;
+	return true;
 }
 
 bool IsValidRocket(int rocket)
