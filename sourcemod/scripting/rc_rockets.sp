@@ -44,6 +44,11 @@ public void OnPluginStart()
 	}
 }
 
+public void OnMapStart()
+{
+	AimType = GetConVarInt(g_rocketAimType);
+}
+
 public void OnRocketAimChanged(ConVar convar, char[] oldVal, char[] newVal)
 {
 	AimType = StringToInt(newVal);
