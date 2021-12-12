@@ -30,6 +30,8 @@ ConVar g_rocketDelay;
 ConVar g_rocketCount;
 ConVar g_rocketCurve;
 ConVar g_showDebug;
+ConVar g_rocketAngle;
+ConVar g_rocketDiverge;
 
 public void OnPluginStart()
 {
@@ -37,8 +39,10 @@ public void OnPluginStart()
 	g_rocketCount = CreateConVar("mirv_rocket_count", "3", "How many rockets a mirv rocket splits into", _, true, 2.0, true, 6.0);
 	g_rocketCurve = CreateConVar("mirv_converge_rockets", "0", "Do rockets converge on a single point after splitting", _, true, 0.0, true, 1.0);
 	g_showDebug = CreateConVar("mirv_converge_debug", "0", "Show debug angles and trajectory for converging rockets", _, true, 0.0, true, 1.0);
+	g_rocketAngle = CreateConVar("mirv_split_angle", "50.0", "Positive angle from the down vector at which mirv rockets will split at (0.0 = directly down, 90.0 = no deviation)");
+	g_rocketDiverge = CreateConVar("mirv_split_variance", "20.0", "Random angle variance added onto mirv rockets");
 	HookConVarChange(g_rocketCurve, OnMirvSettingsChanged);
-	
+
 	ShouldMirvConverge = GetConVarBool(g_rocketCurve);
 
 	ExplodeSprite = PrecacheModel("sprites/sprite_fire01.vmt");
@@ -172,12 +176,13 @@ void SplitRocket(int rocket, bool converge)
 		variance = ClampFloat((GetVectorDistance(pos, convergePos) / 5.0), 3.0, 30.0);
 	}
 	else
-		rocketAngle[0] += GetRandomFloat(1.0, 10.0);
-		
+		rocketAngle[0] = (89.0 - GetConVarFloat(g_rocketAngle));
+
 	EmitSoundToAll(ExplodeSound, rocket);
 	TE_SetupExplosion(pos, ExplodeSprite, 3.0, 1, 0, 1, 1);
 	TE_SendToAll();
 	int count = GetConVarInt(g_rocketCount);
+	float angVar = GetConVarFloat(g_rocketDiverge);
 	//PrintToChat(owner, "Mirv count: %i", count);
 	for (int i = 1; i <= count; i++)
 	{
@@ -188,7 +193,7 @@ void SplitRocket(int rocket, bool converge)
 			if (converge) //much larger spread if rockets converge on a point
 				angles[axis] = rocketAngle[axis] + GetRandomFloat((-1.0 * variance), variance);
 			else
-				angles[axis] = rocketAngle[axis] + GetRandomFloat(-5.0, 5.0);
+				angles[axis] = rocketAngle[axis] + GetRandomFloat((-1.0 * angVar), angVar);
 		}
 
 		int mirv = CreateEntityByName(classname);
@@ -309,7 +314,7 @@ void ConvergeRocket(int rocket)
 		NormalizeVector(angleVec, angleVec);
 		ScaleVector(angleVec, 150.0);
 		AddVectors(curPos, angleVec, angleVec);
-		
+
 		if (GetConVarBool(g_showDebug))
 		{
 			//forward visual
