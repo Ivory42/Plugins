@@ -43,7 +43,7 @@ enum struct LandMine
 	{
 		if (IsValidEntity(this.pipe) && this.pipe > MaxClients)
 		{
-			SDKCall(this.pipe, DetonatePipe);
+			SDKCall(DetonatePipe, this.pipe);
 		}
 	}
 }
