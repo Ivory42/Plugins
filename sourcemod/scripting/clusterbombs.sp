@@ -109,13 +109,13 @@ void ForceCluster(int pipe, Pipe grenade)
 	GetEntPropVector(pipe, Prop_Data, "m_vecOrigin", pos);
 	GetEntPropVector(pipe, Prop_Data, "m_vecVelocity", vel);
 	int team = GetEntProp(pipe, Prop_Send, "m_iTeamNum");
+	pos[2] += 20.0;
 
 	//Spawn child grenades
 	for (int i = 1; i <= children; i++)
 	{
 		int child = CreateEntityByName("tf_projectile_pipe");
 		float child_vel[3];
-		pos[2] += 10.0;
 
 		//Prevent child grenades from detonating on contact
 		SetEntProp(child, Prop_Send, "m_bTouched", 1);
