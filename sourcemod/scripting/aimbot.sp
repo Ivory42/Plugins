@@ -774,7 +774,8 @@ stock int TF2_AttachBasicGlow(int entity, TFTeam team = TFTeam_Unassigned)
 	char model[PLATFORM_MAX_PATH];
 	GetEntPropString(entity, Prop_Data, "m_ModelName", model, PLATFORM_MAX_PATH);
 
-	if (strlen(model) != 0) {
+	if (strlen(model) != 0)
+	{
 		int prop = CreateEntityByName("tf_taunt_prop");
 
 		if (IsValidEntity(prop))
