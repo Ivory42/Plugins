@@ -1,5 +1,12 @@
 #pragma semicolon 1
 
+//// TODO:
+/// 
+/// Update all float arrays used for vectors and angles to FVector and FRotator structs, respectively
+/// Update client and object structs to be consistent with my other major plugins
+///
+////
+
 #include <sdktools>
 #include <sdkhooks>
 #include <ilib>
@@ -13,14 +20,19 @@ bool GameInProgress;
 
 public Plugin MyInfo =
 {
-	name = "[TF2] Aimbot",
+	name = "[TF2] Admin Cheats",
 	author = "IvoryPal",
 	description = "Aimbot and other visuals",
 	version = "1.0"
 }
 
-EntityWrapper Outline[2049];
-EntityWrapper Target[2049];
+//Wallbang SDKCalls
+Handle GetWeaponDamageCall;
+Handle GetWeaponSpreadCall;
+Handle GetCustomDamageTypeCall;
+
+FObject Outline[2049];
+FObject Target[2049];
 int Offset;
 
 enum AimPriority
@@ -47,6 +59,10 @@ enum struct Aimbot
 	bool target_buildings;
 	bool projectile;
 	bool ignore_walls;
+
+	int seed; //player seed for prediction
+	bool attack_crit;
+
 	AimPriority aim_type;
 
 	int target; //aimbot target
@@ -60,32 +76,32 @@ enum struct Aimbot
 		if (this.fov > 180.0)
 			this.fov = 0.0;
 	}
-	void SetPriority(Client client)
+	void SetPriority(FClient client)
 	{
-		int player = client.get();
+		int player = client.Get();
 		if (IsValidClient(player))
 		{
 			this.priority[player]++;
 			if (this.priority[player] > 5)
 				this.priority[player] = -1;
-				
+
 		}
 	}
-	int GetPriority(Client client)
+	int GetPriority(FClientclient)
 	{
 		if (client.valid())
 		{
-			int player = client.get();
+			int player = client.Get();
 			return this.priority[player];
 		}
 
 		return 0;
 	}
-	bool IsIgnored(Client client)
+	bool IsIgnored(FClientclient)
 	{
 		if (client.valid())
 		{
-			int player = client.get();
+			int player = client.Get();
 			return this.priority[player] == -1;
 		}
 
@@ -111,15 +127,25 @@ Aimbot Settings[MAXPLAYERS+1];
 public void OnPluginStart()
 {
 	RegAdminCmd("sm_cheat_config", CmdCheats, ADMFLAG_BAN);
-	
+
 	HookEvent("player_spawn", OnPlayerSpawn, EventHookMode_Post);
 	HookEvent("post_inventory_application", OnPlayerSpawn, EventHookMode_Post);
-	
+
 	HookEvent("player_death", OnPlayerDeath, EventHookMode_Pre);
 
 	//SDKCalls
+	GameData config = new GameData("admincheats");
+	if (!config)
+		SetFailState("Failed to find tf2-punchthrough gamedata! Cannot proceed!");
+
 	StartPrepSDKCall(SDKCall_Entity);
-	PrepSDKCall_SetSignature(SDKLibrary_Server, "\x55\x8B\xEC\x83\xEC\x30\x56\x8B\xF1\x80\xBE\x41\x03\x00\x00\x00", 16);
+	PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CTFWeaponBaseGun::GetProjectileDamage");
+	PrepSDKCall_SetReturnInfo(SDKType_Float, SDKPass_Plain);
+	GetWeaponDamageCall = EndPrepSDKCall();
+
+	StartPrepSDKCall(SDKCall_Entity);
+	//PrepSDKCall_SetSignature(SDKLibrary_Server, "\x55\x8B\xEC\x83\xEC\x30\x56\x8B\xF1\x80\xBE\x41\x03\x00\x00\x00", 16);
+	PrepSDKCall_SetFromConf(config, SDKConf_Signature, "CBaseAnimating::GetBonePosition");
 	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
 	PrepSDKCall_AddParameter(SDKType_Vector, SDKPass_ByRef, _, VENCODE_FLAG_COPYBACK);
 	PrepSDKCall_AddParameter(SDKType_QAngle, SDKPass_ByRef, _, VENCODE_FLAG_COPYBACK);
@@ -137,26 +163,24 @@ public void OnPluginStart()
 
 Action OnPlayerSpawn(Event event, const char[] name, bool dbroad)
 {
-	Client client;
-	client.userid = event.GetInt("userid");
-	
-	int player = client.get();
-	
-	SetupGlow(player, view_as<TFTeam>(client.GetTeam()));
-	
+	FClient client;
+	client = ConstructClient(event.GetInt("userid"));
+
+	SetupGlow(client, client.GetTeam());
+
 	return Plugin_Continue;
 }
 
 Action OnPlayerDeath(Event event, const char[] name, bool dbroad)
 {
-	Client client;
-	client.userid = event.GetInt("userid");
-	
-	int player = client.get();
-	
-	TF2_RemoveGlow(Outline[player].get());
-	Outline[player].kill();
-	
+	FClientclient;
+	client = ConstructClient(event.GetInt("userid"));
+
+	int player = client.Get();
+
+	RemoveGlow(Outline[player].Get());
+	Outline[player].Kill();
+
 	return Plugin_Continue;
 }
 
@@ -177,7 +201,7 @@ public void OnClientPostAdminCheck(int client)
 
 public void OnClientDisconnect(int client)
 {
-	Outline[client].kill();
+	Outline[client].Kill();
 }
 
 ///
@@ -225,19 +249,19 @@ int NormalPriority[] = //priority for everything else
 
 void SetupGlow(int entity, TFTeam team)
 {
-	TF2_RemoveGlow(Outline[entity].get());
-	Outline[entity].kill();
-	int glow = TF2_AttachBasicGlow(entity, team);
-	Target[glow].set(entity);
-	Outline[entity].set(glow);
+	RemoveGlow(Outline[entity].Get());
+	Outline[entity].Kill();
+	int glow = AttachESP(entity, team);
+	Target[glow].Set(entity);
+	Outline[entity].Set(glow);
 
-	SDKHook(Outline[entity].get(), SDKHook_SetTransmit, OnGlowReplicated);
+	SDKHook(Outline[entity].Get(), SDKHook_SetTransmit, OnGlowReplicated);
 }
 
 Action CmdCheats(int client, int args)
 {
 	OpenMenu(client, Settings[client]);
-	
+
 	return Plugin_Continue;
 }
 
@@ -245,7 +269,7 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 {
 	if (Settings[client].aimbot)
 		TryAimbot(client, Settings[client], weapon);
-		
+
 	return Plugin_Continue;
 }
 
@@ -258,9 +282,9 @@ bool TryAimbot(int client, Aimbot settings, int weapon)
 	bool result = false;
 	float pos[3];
 	GetClientEyePosition(client, pos);
-	Client player;
+	FClientplayer;
 	GetClosestTarget(client, pos, settings, player);
-	settings.target = player.get();
+	settings.target = player.Get();
 	PrintToChatAll("Target: %i", settings.target);
 	if (settings.target != -1)
 	{
@@ -268,17 +292,17 @@ bool TryAimbot(int client, Aimbot settings, int weapon)
 		AimPriority priority = GetAimPriority(client, settings, weapon);
 		if (GetBonePositionFromHitbox(client, settings.target, bonePos, priority))
 		{
-
+			// wip
 		}
 	}
-	
+
 	return result;
 }
 
-void GetClosestTarget(int client, float origin[3], Aimbot settings, Client player)
+any[sizeof FClient] GetClosestTarget(int client, float origin[3], Aimbot settings)
 {
 	float targPos[3], closest, fov, distance;
-	Client target, best;
+	FClient target, best;
 	for (int i = 1; i <= MaxClients; i++)
 	{
 		if (IsValidClient(i))
@@ -289,7 +313,7 @@ void GetClosestTarget(int client, float origin[3], Aimbot settings, Client playe
 			if (GetClientTeam(i) == GetClientTeam(client))
 				continue;
 			else
-				target.set(i);
+				target.Set(i);
 
 			if (settings.IsIgnored(target))
 				continue;
@@ -305,7 +329,7 @@ void GetClosestTarget(int client, float origin[3], Aimbot settings, Client playe
 			}
 		}
 	}
-	player = best;
+	return best
 }
 
 bool IsInFov(int target, int client, float fov, float targetPos[3], float pos[3])
@@ -448,13 +472,16 @@ public void OnEntityCreated(int entity, const char[] classname)
 void OnEntSpawnPost(int entity)
 {
 	int team = GetEntProp(entity, Prop_Send, "m_iTeamNum");
-	SetupGlow(entity, view_as<TFTeam>(team));
+	SetupGlow(entity, team);
 }
 
-public void OnEntityRemoved(int entity)
+public void OnEntityDestroyed(int entity)
 {
-	TF2_RemoveGlow(Outline[entity].get());
-	Outline[entity].kill();
+	if (entity > 0 && entity < 2049) // exclude pointers
+	{
+		RemoveGlow(Outline[entity].Get());
+		Outline[entity].Kill();
+	}
 }
 
 
@@ -624,8 +651,8 @@ int MenuSettingsCallback(Menu menu, MenuAction action, int client, int param)
 			if (IsCharNumeric(item[0])) //Client ID selected
 			{
 				int id = StringToInt(item);
-				Client player;
-				player.set(id);
+				FClientplayer;
+				player.Set(id);
 
 				Settings[client].SetPriority(player);
 				type = SETTINGS_PLAYERS;
@@ -661,7 +688,7 @@ int MenuSettingsCallback(Menu menu, MenuAction action, int client, int param)
 
 public Action OnGlowReplicated(int overlay, int client)
 {
-	int owner = Target[overlay].get();
+	int owner = Target[overlay].Get();
 	if (owner && IsValidEntity(owner)) //IsValidEntity returns true on entity 0 (server) so make sure owner is not 0
 	{
 		if (ReplicateESP(client, Settings[client], owner))
@@ -684,8 +711,8 @@ bool ReplicateESP(int client, Aimbot settings, int target)
 		int targTeam;
 		if (IsValidClient(target)) //Player ESP
 		{
-			Client player;
-			player.set(target);
+			FClient player;
+			player.Set(target);
 
 			if (settings.IsIgnored(player)) //do not outline ignored players
 				return false;
@@ -721,6 +748,7 @@ bool ReplicateESP(int client, Aimbot settings, int target)
 /// Helper Functions
 ///
 
+// Needs to be removed in favor of FClient::Valid()
 bool IsValidClient(int client)
 {
 	if (client > 0 && client <= MaxClients)
@@ -769,64 +797,66 @@ float[] VectorFromAddress(Address address)
 	return vector;
 }
 
-stock int TF2_AttachBasicGlow(int entity, TFTeam team = TFTeam_Unassigned)
+int AttachESP(int entity, TFTeam team)
 {
 	char model[PLATFORM_MAX_PATH];
 	GetEntPropString(entity, Prop_Data, "m_ModelName", model, PLATFORM_MAX_PATH);
 
 	if (strlen(model) != 0)
 	{
-		int prop = CreateEntityByName("tf_taunt_prop");
+		FObject prop;
+		prop.create("tf_taunt_prop");
 
-		if (IsValidEntity(prop))
+		if (prop.valid())
 		{
-			DispatchSpawn(prop);
+			prop.spawn();
 			if (team != TFTeam_Unassigned)
 			{
-				SetEntProp(prop, Prop_Data, "m_iInitialTeamNum", view_as<int>(team));
-				SetEntProp(prop, Prop_Send, "m_iTeamNum", view_as<int>(team));
+				prop.SetProp(Prop_Data, "m_iInitialTeamNum", view_as<int>(team));
+				prop.SetProp(Prop_Send, "m_iTeamNum", view_as<int>(team));
 			}
-			
-			SetEntityModel(prop, model);
 
-			SetEntPropEnt(prop, Prop_Data, "m_hEffectEntity", entity);
+			prop.SetModel(model);
+
+			prop.SetPropEnt(Prop_Data, "m_hEffectEntity", entity);
 			//SetEntProp(prop, Prop_Send, "m_bGlowEnabled", 1);
-			
-			TF2_CreateGlow(prop, view_as<int>(team));
 
-			int iFlags = GetEntProp(prop, Prop_Send, "m_fEffects");
+			CreateOutline(prop, view_as<int>(team));
 
-			SetEntProp(prop, Prop_Send, "m_fEffects", iFlags | EF_BONEMERGE | EF_NOSHADOW | EF_NOINTERP);
+			int flags = prop.GetProp(Prop_Send, "m_fEffects");
+
+			prop.SetProp(Prop_Send, "m_fEffects", flags | EF_BONEMERGE | EF_NOSHADOW | EF_NOINTERP);
 
 			SetVariantString("!activator");
-			AcceptEntityInput(prop, "SetParent", entity);
+			prop.input("SetParent", entity);
 
-			SetEntityRenderMode(prop, RENDER_TRANSCOLOR);
-			SetEntityRenderColor(prop, 255, 255, 255, 0);
+			LinearColor color;
+			color.Set(255, 255, 255, 0);
+			SetEntityRenderMode(prop.Get(), RENDER_TRANSCOLOR);
+			prop.SetColor(color);
 		}
-		return prop;
+		return prop.Get();
 	}
 	return -1;
 }
 
-stock int TF2_CreateGlow(int iEnt, int team)
+int CreateOutline(int entity, int team)
 {
 	char oldEntName[64];
-	GetEntPropString(iEnt, Prop_Data, "m_iName", oldEntName, sizeof(oldEntName));
+	GetEntPropString(entity, Prop_Data, "m_iName", oldEntName, sizeof oldEntName);
 
 	char strName[126], strClass[64];
-	GetEntityClassname(iEnt, strClass, sizeof(strClass));
-	Format(strName, sizeof(strName), "%s%i", strClass, iEnt);
-	DispatchKeyValue(iEnt, "targetname", strName);
+	GetEntityClassname(entity, strClass, sizeof strClass);
+	Format(strName, sizeof strName, "%s%i", strClass, entity);
+	DispatchKeyValue(entity, "targetname", strName);
 
-	int ent = CreateEntityByName("tf_glow");
-	DispatchKeyValue(ent, "targetname", "RainbowGlow");
-	DispatchKeyValue(ent, "target", strName);
-	DispatchKeyValue(ent, "Mode", "0");
-	DispatchSpawn(ent);
+	int glow = CreateEntityByName("tf_glow");
+	DispatchKeyValue(glow, "target", strName);
+	DispatchKeyValue(glow, "Mode", "0");
+	DispatchSpawn(glow);
 
-	AcceptEntityInput(ent, "Enable");
-	
+	AcceptEntityInput(glow, "Enable");
+
 	int color[4];
 	switch (team)
 	{
@@ -836,15 +866,15 @@ stock int TF2_CreateGlow(int iEnt, int team)
 	}
 
 	SetVariantColor(color);
-	AcceptEntityInput(ent, "SetGlowColor");
+	AcceptEntityInput(glow, "SetGlowColor");
 
 	//Change name back to old name because we don't need it anymore.
-	SetEntPropString(iEnt, Prop_Data, "m_iName", oldEntName);
+	SetEntPropString(entity, Prop_Data, "m_iName", oldEntName);
 
 	return ent;
 }
 
-stock void TF2_RemoveGlow(int iEnt)
+stock void RemoveGlow(int entity)
 {
 	if (IsValidEntity(iEnt) && iEnt > 0)
 	{
@@ -858,4 +888,3 @@ stock void TF2_RemoveGlow(int iEnt)
 		}
 	}
 }
-
