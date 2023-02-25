@@ -40,7 +40,7 @@ void OnRoundStart(Event event, const char[] name, bool dBroad)
 		DamageMult[i] = 1.0;
 
 		// Except for this part :)
-		if (IsClientInGame(i);
+		if (IsClientInGame(i))
 			SetEntityHealth(i, MaxHealth[i]);
 	}
 }
