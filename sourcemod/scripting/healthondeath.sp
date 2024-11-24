@@ -106,7 +106,7 @@ Action OnSetMaxHealth(int client, int& health)
 	if (IsEnabled)
 	{
 		MaxHealth[client] = health;
-		health = RoundFloat(health * HealthMult[client]);
+		health = RoundFloat(float(health) * HealthMult[client]);
 		return Plugin_Changed;
 	}
 
